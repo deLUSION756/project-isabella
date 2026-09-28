@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; margin: 40px; color: #333; }
+h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+h2 { color: #2980b9; margin-top: 30px; }
+h3 { color: #16a085; }
+.mermaid-placeholder { background: #f8f9fa; border: 1px dashed #bdc3c7; padding: 20px; text-align: center; font-family: monospace; color: #7f8c8d; margin: 20px 0; border-radius: 5px; }
+ul { margin-bottom: 20px; }
+li { margin-bottom: 8px; }
+.highlight { background-color: #f1f2f6; padding: 2px 5px; border-radius: 3px; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<h1>Project Isabella: Architectural Breakdown</h1>
+<p>Isabella is an implementation of an <strong>Open-LLM-VTuber</strong> stack, meaning she is built from a constellation of local microservices and AI models working together in real time over WebSockets.</p>
+
+<h2>High-Level Flow</h2>
+<div class="mermaid-placeholder">
+[ Frontend: Electron + React ] &lt;== Localhost WebSocket ==&gt; [ Backend: Python FastAPI ]<br><br>
+(Mic -&gt; VAD) &gt; (Audio Player / Live2D Engine)<br>
+^<br>
+|<br>
+v<br>
+(ASR: Whisper) -&gt; (Brain: Llama 3.3 70B via OpenRouter) &lt;-&gt; (Tools: MCP Desktop Controller)<br>
+v<br>
+(TTS: Kokoro-82M)
+</div>
+
+<h2>1. The Frontend (The Body &amp; Sensors)</h2>
+<p>The frontend is built on <strong>Electron</strong>, which wraps a <strong>React 18</strong> web application (bundled by Vite) into a native Windows desktop window.</p>
+<ul>
+    <li><strong>Ears (Voice Activity Detection):</strong> It uses <span class="highlight">@ricky0123/vad-web</span> running directly in the browser environment. It listens to your microphone constantly, but uses a local neural network to detect <em>when you actually speak</em>. When you pause, it slices that audio chunk and shoots the raw Float32Array audio buffer over the WebSocket to the backend.</li>
+    <li><strong>Body (Live2D Engine):</strong> It uses <span class="highlight">pixi.js</span> combined with <span class="highlight">pixi-live2d-display</span> and the official Cubism Core SDK. This allows the 2D "Shizuku" model to be hardware-accelerated.</li>
+    <li><strong>Lip Sync &amp; Emotion:</strong> When the backend sends back voice audio, the frontend analyzes the audio frequencies to make the avatar's lips move dynamically. When it receives tags like <span class="highlight">[joy]</span> or <span class="highlight">[sadness]</span>, it triggers pre-baked motion files in the Live2D model.</li>
+</ul>
+
+<h2>2. The Backend (The Nervous System)</h2>
+<p>The backend is a <strong>Python FastAPI</strong> server utilizing <span class="highlight">uvicorn</span>. It acts as the central hub, completely isolated from the UI, processing data as fast as possible.</p>
+<ul>
+    <li><strong>Transcription (ASR - Automatic Speech Recognition):</strong> You are configured to use <strong>faster_whisper</strong>. When the backend receives your raw audio buffer, Faster-Whisper uses local CPU/GPU compute to instantly transcribe your voice into text.</li>
+    <li><strong>The Brain (Agentic Loop):</strong> The backend uses an Agent class. It holds Isabella's system prompt (her personality, memories, and rules) and appends your transcribed text. It then reaches out to <strong>OpenRouter</strong> (using the <span class="highlight">meta-llama/llama-3.3-70b-instruct</span> model) to generate her response.</li>
+    <li><strong>Voice Synthesis (TTS - Text-to-Speech):</strong> As OpenRouter streams text back word-by-word, the backend pipes those words into <strong>kokoro_tts</strong> (Kokoro-82M). Kokoro turns the text into .wav audio bytes on the fly and streams them back down the WebSocket to the frontend.</li>
+    <li><strong>The Hands (MCP Desktop Controller):</strong> This is the custom <span class="highlight">desktop_mcp.py</span> script. The LLM is given JSON schemas of functions it can run. If you ask Isabella to play a song, the LLM outputs a JSON command instead of text. The backend intercepts this, runs your Python functions to control the PC, and feeds the result back to the LLM so she can tell you she did it.</li>
+</ul>
+
+<h2>The Full Loop (What happens in 2 seconds)</h2>
+<ol>
+    <li>You say "Open Notepad and say hi."</li>
+    <li><strong>VAD</strong> detects you stopped speaking and sends the audio over WebSocket.</li>
+    <li><strong>Faster-Whisper</strong> transcribes it to text.</li>
+    <li><strong>Agent</strong> sends it to <strong>Llama 3.3 70B</strong> on OpenRouter.</li>
+    <li>Llama realizes it needs a tool, and fires the <span class="highlight">write_to_notepad</span> function.</li>
+    <li>The Backend executes the Python script. Notepad opens and "hi" is typed.</li>
+    <li>Backend tells Llama it succeeded.</li>
+    <li>Llama generates: <span class="highlight">[joy] Right away, Master Sayantan! It is done.</span></li>
+    <li><strong>Kokoro TTS</strong> instantly converts that to a female voice audio file.</li>
+    <li>The Frontend plays the audio, triggers the "joy" animation on Shizuku, and moves her mouth to the voice.</li>
+</ol>
+
+</body>
+</html>
